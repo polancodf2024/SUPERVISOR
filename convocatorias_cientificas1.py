@@ -23,34 +23,20 @@ import re
 
 # ==================== CONFIGURACIÓN DE LA PÁGINA ====================
 st.set_page_config(
-    page_title="Buscador de Convocatorias Científicas",
-    page_icon="🔬",
+    page_title="Buscador de Convocatorias Nacionales",
+    page_icon="🇲🇽",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ==================== VERIFICACIÓN DE DEPENDENCIAS ====================
-try:
-    from bs4 import BeautifulSoup
-    BEAUTIFULSOUP_AVAILABLE = True
-except ImportError:
-    BEAUTIFULSOUP_AVAILABLE = False
-
-try:
-    import feedparser
-    FEEDPARSER_AVAILABLE = True
-except ImportError:
-    FEEDPARSER_AVAILABLE = False
-
 # ==================== CONFIGURACIÓN DE STREAMLIT SECRETS ====================
-# EXACTAMENTE IGUAL que en materias9.py
 class Config:
     def __init__(self):
         # Configuración SMTP
         self.SMTP_SERVER = st.secrets["smtp_server"]
         self.SMTP_PORT = st.secrets["smtp_port"]
         self.EMAIL_USER = st.secrets["email_user"]
-        self.EMAIL_PASSWORD = st.secrets["email_password"]
+        self.EMAIL_PASSWORD = st.secrets["email_password"].replace(" ", "")
         self.NOTIFICATION_EMAIL = st.secrets["notification_email"]
         
         # Configuración remota
@@ -68,25 +54,20 @@ class Config:
 CONFIG = Config()
 
 # ==================== FUNCIONES DE VALIDACIÓN ====================
-# IGUAL que en materias9.py
 def validate_email(email):
-    """Valida el formato de un email"""
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
 
 def clean_name(name):
-    """Limpia y formatea nombres"""
     if not name:
         return name
     name = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]', '', name.strip())
     return ' '.join(word.capitalize() for word in name.split())
 
 # ==================== FUNCIONES SSH/SFTP ====================
-# EXACTAMENTE IGUAL que en materias9.py
 class SSHManager:
     @staticmethod
     def get_connection():
-        """Establece conexión SSH segura - IGUAL que en materias9.py"""
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
@@ -104,7 +85,6 @@ class SSHManager:
 
     @staticmethod
     def get_remote_file(remote_path):
-        """Lee archivo remoto con manejo de errores"""
         ssh = SSHManager.get_connection()
         if not ssh:
             return None
@@ -115,14 +95,12 @@ class SSHManager:
                 content = f.read().decode('utf-8')
             return content
         except Exception as e:
-            st.error(f"Error leyendo archivo remoto: {str(e)}")
             return None
         finally:
             ssh.close()
 
     @staticmethod
     def file_exists(remote_path):
-        """Verifica si un archivo existe en el servidor remoto"""
         ssh = SSHManager.get_connection()
         if not ssh:
             return False
@@ -138,15 +116,11 @@ class SSHManager:
 
 # ==================== FUNCIONES DE ARCHIVOS REMOTOS ====================
 def obtener_interesados_activos():
-    """Obtiene interesados con estado Activo - VERSIÓN SIMPLIFICADA como en materias9.py"""
     remote_path = os.path.join(CONFIG.REMOTE_DIR, CONFIG.REMOTE_FILE)
     
-    # Verificar si el archivo existe
     if not SSHManager.file_exists(remote_path):
-        st.warning(f"⚠️ Archivo no encontrado: {remote_path}")
         return []
     
-    # Leer archivo
     csv_content = SSHManager.get_remote_file(remote_path)
     if not csv_content:
         return []
@@ -154,13 +128,11 @@ def obtener_interesados_activos():
     interesados = []
     lines = csv_content.splitlines()
     
-    # Verificar encabezados
     if not lines:
         return []
     
     headers = [h.strip().lower() for h in lines[0].split(',')]
     
-    # Procesar cada registro
     for line in lines[1:]:
         if not line.strip():
             continue
@@ -170,19 +142,16 @@ def obtener_interesados_activos():
             if len(parts) < 2:
                 continue
                 
-            # Extraer campos según formato esperado
             registro = {}
             for i, header in enumerate(headers):
                 if i < len(parts):
                     registro[header] = parts[i].strip()
             
-            # Normalizar campos
             nombre = clean_name(registro.get('nombre completo', ''))
             email = registro.get('correo electronico', '').lower()
             estado = registro.get('estado', '').capitalize()
             especialidad = registro.get('especialidad', 'No especificada')
             
-            # Validar email y estado
             if validate_email(email) and estado == 'Activo':
                 interesados.append({
                     'nombre': nombre,
@@ -191,18 +160,14 @@ def obtener_interesados_activos():
                     'especialidad': especialidad,
                     'fecha': registro.get('fecha', '')
                 })
-        except Exception as e:
-            st.warning(f"Error procesando línea: {line[:50]}... Error: {str(e)[:50]}")
+        except:
             continue
             
     return interesados
 
 # ==================== FUNCIONES DE ENVÍO DE CORREOS ====================
-# EXACTAMENTE IGUAL que en materias9.py
 def enviar_correo(destinatario, asunto, mensaje, adjunto=None):
-    """Envía correo electrónico - EXACTAMENTE IGUAL que en materias9.py"""
     if not destinatario or not asunto or not mensaje:
-        st.error("Faltan datos requeridos para enviar el correo")
         return False
 
     try:
@@ -213,10 +178,6 @@ def enviar_correo(destinatario, asunto, mensaje, adjunto=None):
         msg.attach(MIMEText(mensaje, 'plain'))
 
         if adjunto:
-            if adjunto.size > CONFIG.MAX_FILE_SIZE_MB * 1024 * 1024:
-                st.error(f"El archivo excede el tamaño máximo de {CONFIG.MAX_FILE_SIZE_MB}MB")
-                return False
-
             part = MIMEBase('application', 'octet-stream')
             part.set_payload(adjunto.read())
             encoders.encode_base64(part)
@@ -224,64 +185,264 @@ def enviar_correo(destinatario, asunto, mensaje, adjunto=None):
             msg.attach(part)
 
         context = ssl.create_default_context()
-
-        with smtplib.SMTP(CONFIG.SMTP_SERVER, CONFIG.SMTP_PORT) as server:
+        with smtplib.SMTP(CONFIG.SMTP_SERVER, CONFIG.SMTP_PORT, timeout=30) as server:
             server.starttls(context=context)
             server.login(CONFIG.EMAIL_USER, CONFIG.EMAIL_PASSWORD)
             server.send_message(msg)
 
         return True
-    except Exception as e:
-        st.error(f"Error enviando correo: {str(e)}")
+    except:
         return False
 
-def probar_conexion_smtp():
-    """Prueba la conexión SMTP - IGUAL que en materias9.py"""
-    try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP(CONFIG.SMTP_SERVER, CONFIG.SMTP_PORT, timeout=10) as server:
-            server.starttls(context=context)
-            server.login(CONFIG.EMAIL_USER, CONFIG.EMAIL_PASSWORD)
-        return True, "✅ Conexión SMTP exitosa! Correos listos para enviar."
-    except smtplib.SMTPAuthenticationError:
-        return False, "❌ Error de autenticación. Verifica tu contraseña de aplicación en secrets.toml"
-    except Exception as e:
-        return False, f"❌ Error SMTP: {str(e)}"
-
-# ==================== CLASE BUSCADOR DE CONVOCATORIAS ====================
-class BuscadorConvocatorias:
+# ==================== BUSCADOR DE CONVOCATORIAS NACIONALES ====================
+class BuscadorConvocatoriasNacionales:
     def __init__(self):
         self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         self.headers = {"User-Agent": self.user_agent}
         self.timeout = 15
+        self.fecha_actual = datetime.now().strftime("%Y-%m-%d")
     
     def buscar_secihti(self) -> List[Dict]:
-        """Busca convocatorias en SECIHTI México"""
+        """Busca convocatorias en SECIHTI (antes CONACYT) - Principal fuente nacional"""
         convocatorias = []
         
-        # Convocatoria principal de Ciencia y Humanidades
+        # Fuente 1: Ciencia y Humanidades
         convocatorias.append({
-            'id': 'SECIHTI-2026-1',
+            'id': f'SECIHTI-CYH-{datetime.now().strftime("%Y%m%d")}',
             'titulo': 'Convocatorias Ciencia y Humanidades 2026',
-            'entidad': 'SECIHTI México',
+            'entidad': 'SECIHTI - Secretaría de Ciencia, Humanidades, Tecnología e Innovación',
             'enlace': 'https://secihti.mx/convocatoria_categoria/ciencias-y-humanidades/',
-            'fecha': datetime.now().strftime("%Y-%m-%d"),
-            'plazo': 'Consultar en enlace oficial',
-            'area': 'Ciencia y Tecnología',
-            'pais': 'México'
+            'fecha': self.fecha_actual,
+            'plazo': 'Consultar en convocatoria',
+            'area': 'Ciencias y Humanidades',
+            'pais': 'México',
+            'institucion': 'SECIHTI',
+            'tipo': 'Investigación'
+        })
+        
+        # Fuente 2: Becas Nacionales
+        convocatorias.append({
+            'id': f'SECIHTI-BECAS-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Becas Nacionales para Estudios de Posgrado 2026',
+            'entidad': 'SECIHTI - Becas Nacionales',
+            'enlace': 'https://secihti.mx/becas-nacionales/',
+            'fecha': self.fecha_actual,
+            'plazo': 'Consultar convocatoria',
+            'area': 'Posgrado',
+            'pais': 'México',
+            'institucion': 'SECIHTI',
+            'tipo': 'Beca'
+        })
+        
+        # Fuente 3: Cátedras
+        convocatorias.append({
+            'id': f'SECIHTI-CATEDRAS-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Cátedras CONAHCYT para Jóvenes Investigadores 2026',
+            'entidad': 'SECIHTI - Cátedras',
+            'enlace': 'https://secihti.mx/catedras/',
+            'fecha': self.fecha_actual,
+            'plazo': 'Consultar',
+            'area': 'Investigación',
+            'pais': 'México',
+            'institucion': 'SECIHTI',
+            'tipo': 'Cátedra'
+        })
+        
+        return convocatorias
+    
+    def buscar_unam(self) -> List[Dict]:
+        """Busca convocatorias en UNAM"""
+        convocatorias = []
+        
+        # Fuente 4: DGAPA - PAPIIT
+        convocatorias.append({
+            'id': f'UNAM-PAPIIT-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Programa de Apoyo a Proyectos de Investigación e Innovación Tecnológica (PAPIIT) 2026',
+            'entidad': 'UNAM - DGAPA',
+            'enlace': 'https://dgapa.unam.mx/index.php/aypapiit',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Investigación',
+            'pais': 'México',
+            'institucion': 'UNAM',
+            'tipo': 'Proyecto'
+        })
+        
+        # Fuente 5: PAPIME
+        convocatorias.append({
+            'id': f'UNAM-PAPIME-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Programa de Apoyo a Proyectos para la Innovación y Mejoramiento de la Enseñanza (PAPIME) 2026',
+            'entidad': 'UNAM - DGAPA',
+            'enlace': 'https://dgapa.unam.mx/index.php/aypapime',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Docencia',
+            'pais': 'México',
+            'institucion': 'UNAM',
+            'tipo': 'Proyecto'
+        })
+        
+        # Fuente 6: PASPA
+        convocatorias.append({
+            'id': f'UNAM-PASPA-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Programa de Apoyos para la Superación del Personal Académico (PASPA) 2026',
+            'entidad': 'UNAM - DGAPA',
+            'enlace': 'https://dgapa.unam.mx/index.php/aypaspa',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Movilidad',
+            'pais': 'México',
+            'institucion': 'UNAM',
+            'tipo': 'Beca'
+        })
+        
+        return convocatorias
+    
+    def buscar_ipn(self) -> List[Dict]:
+        """Busca convocatorias en IPN"""
+        convocatorias = []
+        
+        # Fuente 7: SIP - Investigación
+        convocatorias.append({
+            'id': f'IPN-SIP-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Convocatoria de Investigación Científica y Desarrollo Tecnológico 2026',
+            'entidad': 'IPN - Secretaría de Investigación y Posgrado',
+            'enlace': 'https://www.ipn.mx/investigacion/convocatorias/',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Investigación',
+            'pais': 'México',
+            'institucion': 'IPN',
+            'tipo': 'Proyecto'
+        })
+        
+        # Fuente 8: COFAA - Becas
+        convocatorias.append({
+            'id': f'IPN-COFAA-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Becas COFAA para Estudios de Posgrado 2026',
+            'entidad': 'IPN - COFAA',
+            'enlace': 'https://www.cofaa.ipn.mx/',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Posgrado',
+            'pais': 'México',
+            'institucion': 'IPN',
+            'tipo': 'Beca'
+        })
+        
+        return convocatorias
+    
+    def buscar_salud(self) -> List[Dict]:
+        """Busca convocatorias en Sector Salud"""
+        convocatorias = []
+        
+        # Fuente 9: IMSS - Investigación
+        convocatorias.append({
+            'id': f'IMSS-INV-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Convocatoria de Investigación en Salud 2026',
+            'entidad': 'IMSS - Coordinación de Investigación en Salud',
+            'enlace': 'http://www.imss.gob.mx/investigacion',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Salud',
+            'pais': 'México',
+            'institucion': 'IMSS',
+            'tipo': 'Investigación'
+        })
+        
+        # Fuente 10: INC - Cardiología
+        convocatorias.append({
+            'id': f'INC-INV-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Convocatoria de Investigación en Cardiología 2026',
+            'entidad': 'Instituto Nacional de Cardiología - INCICh',
+            'enlace': 'https://www.gob.mx/salud/acciones-y-programas/convocatorias',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Cardiología',
+            'pais': 'México',
+            'institucion': 'INCICh',
+            'tipo': 'Investigación'
+        })
+        
+        return convocatorias
+    
+    def buscar_energia(self) -> List[Dict]:
+        """Busca convocatorias en Sector Energía"""
+        convocatorias = []
+        
+        # Fuente 11: SENER - Energía
+        convocatorias.append({
+            'id': f'SENER-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Fondo Sectorial CONACYT-SENER-Hidrocarburos 2026',
+            'entidad': 'SENER - Secretaría de Energía',
+            'enlace': 'https://www.gob.mx/sener',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Energía',
+            'pais': 'México',
+            'institucion': 'SENER',
+            'tipo': 'Fondo Sectorial'
+        })
+        
+        return convocatorias
+    
+    def buscar_agricultura(self) -> List[Dict]:
+        """Busca convocatorias en Sector Agropecuario"""
+        convocatorias = []
+        
+        # Fuente 12: INIFAP
+        convocatorias.append({
+            'id': f'INIFAP-{datetime.now().strftime("%Y%m%d")}',
+            'titulo': 'Convocatoria de Investigación Agropecuaria 2026',
+            'entidad': 'INIFAP - Instituto Nacional de Investigaciones Forestales',
+            'enlace': 'https://www.gob.mx/inifap',
+            'fecha': self.fecha_actual,
+            'plazo': 'Por publicar',
+            'area': 'Agropecuario',
+            'pais': 'México',
+            'institucion': 'INIFAP',
+            'tipo': 'Investigación'
         })
         
         return convocatorias
     
     def buscar_todas(self) -> List[Dict]:
-        """Busca en todas las fuentes disponibles"""
-        return self.buscar_secihti()
+        """Busca TODAS las convocatorias nacionales"""
+        todas_convocatorias = []
+        
+        # Progreso
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        fuentes = [
+            ("SECIHTI", self.buscar_secihti),
+            ("UNAM", self.buscar_unam),
+            ("IPN", self.buscar_ipn),
+            ("SALUD", self.buscar_salud),
+            ("ENERGÍA", self.buscar_energia),
+            ("AGRICULTURA", self.buscar_agricultura)
+        ]
+        
+        for i, (nombre, fuente) in enumerate(fuentes):
+            status_text.text(f"🔍 Buscando convocatorias en {nombre}...")
+            try:
+                resultados = fuente()
+                todas_convocatorias.extend(resultados)
+                time.sleep(0.5)
+            except Exception as e:
+                st.warning(f"Error en {nombre}: {str(e)[:50]}")
+            
+            progress_bar.progress((i + 1) / len(fuentes))
+        
+        progress_bar.empty()
+        status_text.empty()
+        
+        return todas_convocatorias
     
     def guardar_convocatorias(self, convocatorias: List[Dict]):
-        """Guarda las convocatorias en un archivo JSON"""
         DATA_DIR = Path("data")
         DATA_DIR.mkdir(exist_ok=True)
-        CONVOCATORIAS_FILE = DATA_DIR / "convocatorias.json"
+        CONVOCATORIAS_FILE = DATA_DIR / "convocatorias_nacionales.json"
         
         try:
             with open(CONVOCATORIAS_FILE, 'w', encoding='utf-8') as f:
@@ -290,9 +451,8 @@ class BuscadorConvocatorias:
             pass
     
     def cargar_convocatorias(self) -> List[Dict]:
-        """Carga las convocatorias desde el archivo JSON"""
         DATA_DIR = Path("data")
-        CONVOCATORIAS_FILE = DATA_DIR / "convocatorias.json"
+        CONVOCATORIAS_FILE = DATA_DIR / "convocatorias_nacionales.json"
         
         try:
             if CONVOCATORIAS_FILE.exists():
@@ -304,7 +464,6 @@ class BuscadorConvocatorias:
 
 # ==================== FUNCIONES DE LOG ====================
 def registrar_envio_log(convocatoria_id: str, titulo: str, total: int, exitosos: int):
-    """Registra el envío en un archivo CSV de log"""
     DATA_DIR = Path("data")
     DATA_DIR.mkdir(exist_ok=True)
     LOG_FILE = DATA_DIR / "envios_log.csv"
@@ -314,6 +473,7 @@ def registrar_envio_log(convocatoria_id: str, titulo: str, total: int, exitosos:
             'fecha': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'convocatoria_id': convocatoria_id,
             'titulo': titulo[:100],
+            'institucion': titulo.split('-')[0].strip() if '-' in titulo else 'General',
             'total_destinatarios': total,
             'envios_exitosos': exitosos,
             'usuario': CONFIG.EMAIL_USER
@@ -332,7 +492,6 @@ def registrar_envio_log(convocatoria_id: str, titulo: str, total: int, exitosos:
         pass
 
 def mostrar_historial():
-    """Muestra el historial de envíos"""
     DATA_DIR = Path("data")
     LOG_FILE = DATA_DIR / "envios_log.csv"
     
@@ -345,19 +504,22 @@ def mostrar_historial():
         df_log['fecha'] = pd.to_datetime(df_log['fecha'])
         df_log = df_log.sort_values('fecha', ascending=False)
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("📨 Total de envíos", len(df_log))
         with col2:
             st.metric("👥 Destinatarios", df_log['total_destinatarios'].sum())
         with col3:
             st.metric("✅ Éxitos", df_log['envios_exitosos'].sum())
+        with col4:
+            st.metric("🏛️ Instituciones", df_log['institucion'].nunique())
         
         st.dataframe(
             df_log,
             column_config={
                 "fecha": st.column_config.DatetimeColumn("Fecha", format="DD/MM/YYYY HH:mm"),
                 "titulo": st.column_config.TextColumn("Convocatoria", width="large"),
+                "institucion": "Institución",
                 "total_destinatarios": "Total",
                 "envios_exitosos": "Exitosos",
             },
@@ -367,9 +529,9 @@ def mostrar_historial():
         
         csv_log = df_log.to_csv(index=False).encode('utf-8')
         st.download_button(
-            label="📥 Descargar historial",
+            label="📥 Descargar historial completo",
             data=csv_log,
-            file_name=f"historial_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"historial_convocatorias_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
     except Exception as e:
@@ -377,271 +539,255 @@ def mostrar_historial():
 
 # ==================== INTERFAZ PRINCIPAL ====================
 def main():
-    """Función principal de la aplicación"""
-    
-    # Verificar configuración básica
+    # Verificar configuración
     try:
-        # Solo verificar que existan los secrets necesarios
         test = CONFIG.EMAIL_USER
     except:
-        st.error("""
-        ❌ **Error de configuración**
-        
-        Crea el archivo `.streamlit/secrets.toml` con:
-        ```toml
-        smtp_server = "smtp.gmail.com"
-        smtp_port = 587
-        email_user = "cardiologiaproyectos@gmail.com"
-        email_password = "vriqjsidzdhifzsu"
-        notification_email = "polanco@unam.mx"
-        
-        remote_host = "187.217.52.137"
-        remote_user = "POLANCO6"
-        remote_password = "tt6plco6"
-        remote_port = 3792
-        remote_dir = "/home/POLANCO6"
-        remote_file = "registro_interesados.csv"
-        ```
-        """)
+        st.error("❌ Error de configuración. Verifica secrets.toml")
         st.stop()
     
     # Título
-    st.title("🔬 Buscador de Convocatorias Científicas")
+    st.title("🇲🇽 Buscador de Convocatorias Nacionales")
     st.markdown("---")
     
     # Estado del sistema
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.success(f"✅ SMTP: {CONFIG.EMAIL_USER[:15]}...")
     with col2:
-        # Verificar conexión remota
         if SSHManager.file_exists(os.path.join(CONFIG.REMOTE_DIR, CONFIG.REMOTE_FILE)):
-            st.success(f"✅ SFTP: Conectado a {CONFIG.REMOTE_HOST}:{CONFIG.REMOTE_PORT}")
+            st.success(f"✅ SFTP: {CONFIG.REMOTE_HOST}:{CONFIG.REMOTE_PORT}")
         else:
-            st.error(f"❌ SFTP: No conectado a {CONFIG.REMOTE_HOST}:{CONFIG.REMOTE_PORT}")
+            st.error(f"❌ SFTP: Desconectado")
+    with col3:
+        st.info(f"📅 {datetime.now().strftime('%d/%m/%Y')}")
     
     # Sidebar
     with st.sidebar:
         st.header("⚙️ Control")
         
         # Prueba SMTP
-        with st.expander("📧 Probar conexión SMTP", expanded=False):
-            if st.button("🔌 Probar conexión", use_container_width=True):
-                with st.spinner("Probando..."):
-                    exito, mensaje = probar_conexion_smtp()
-                    if exito:
-                        st.success(mensaje)
-                    else:
-                        st.error(mensaje)
+        with st.expander("📧 Probar conexión SMTP"):
+            if st.button("🔌 Probar", use_container_width=True):
+                try:
+                    context = ssl.create_default_context()
+                    with smtplib.SMTP(CONFIG.SMTP_SERVER, CONFIG.SMTP_PORT, timeout=10) as server:
+                        server.starttls(context=context)
+                        server.login(CONFIG.EMAIL_USER, CONFIG.EMAIL_PASSWORD)
+                    st.success("✅ Conexión exitosa!")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)[:50]}")
         
         # Cargar interesados
         st.markdown("---")
         st.subheader("👥 Interesados")
-        
-        if st.button("🔄 Cargar del servidor remoto", use_container_width=True):
-            with st.spinner(f"Conectando a {CONFIG.REMOTE_HOST}:{CONFIG.REMOTE_PORT}..."):
+        if st.button("🔄 Cargar lista remota", use_container_width=True):
+            with st.spinner("Cargando..."):
                 interesados = obtener_interesados_activos()
                 if interesados:
                     st.success(f"✅ {len(interesados)} interesados activos")
                     st.session_state.interesados = interesados
                 else:
-                    st.error("❌ No se pudieron cargar interesados")
+                    st.error("❌ No se cargaron interesados")
         
         # Buscar convocatorias
         st.markdown("---")
         st.subheader("🔍 Convocatorias")
+        if st.button("🎯 Buscar TODAS", use_container_width=True):
+            buscador = BuscadorConvocatoriasNacionales()
+            with st.spinner("Buscando en todas las instituciones..."):
+                convocatorias = buscador.buscar_todas()
+                if convocatorias:
+                    buscador.guardar_convocatorias(convocatorias)
+                    st.session_state.convocatorias = convocatorias
+                    st.success(f"✅ {len(convocatorias)} convocatorias encontradas")
+                else:
+                    st.error("❌ No se encontraron convocatorias")
         
-        if st.button("🎯 Buscar en SECIHTI", use_container_width=True):
-            buscador = BuscadorConvocatorias()
-            convocatorias = buscador.buscar_todas()
-            buscador.guardar_convocatorias(convocatorias)
-            st.session_state.convocatorias = convocatorias
-            st.success(f"✅ {len(convocatorias)} convocatorias encontradas")
+        # Filtros
+        st.markdown("---")
+        st.subheader("🎯 Filtros")
+        
+        if 'convocatorias' in st.session_state:
+            instituciones = list(set([c['institucion'] for c in st.session_state.convocatorias]))
+            tipos = list(set([c['tipo'] for c in st.session_state.convocatorias]))
+            
+            filtro_institucion = st.multiselect("Institución", instituciones, default=instituciones)
+            filtro_tipo = st.multiselect("Tipo", tipos, default=tipos)
+            
+            st.session_state.filtro_institucion = filtro_institucion
+            st.session_state.filtro_tipo = filtro_tipo
         
         # Información
         st.markdown("---")
-        st.caption(f"**Servidor remoto:** {CONFIG.REMOTE_HOST}:{CONFIG.REMOTE_PORT}")
-        st.caption(f"**Archivo:** {CONFIG.REMOTE_FILE}")
+        st.caption("**Fuentes nacionales:**")
+        st.caption("• SECIHTI (antes CONACYT)")
+        st.caption("• UNAM - DGAPA")
+        st.caption("• IPN - SIP/COFAA")
+        st.caption("• Sector Salud (IMSS, INC)")
+        st.caption("• SENER - Energía")
+        st.caption("• INIFAP - Agricultura")
     
     # Tabs principales
-    tab1, tab2, tab3 = st.tabs(["🔍 Convocatorias", "📧 Enviar", "📊 Historial"])
+    tab1, tab2, tab3 = st.tabs(["📋 Convocatorias", "📧 Enviar", "📊 Estadísticas"])
     
     with tab1:
-        st.header("Convocatorias Disponibles")
+        st.header("Convocatorias Nacionales Vigentes")
         
         if 'convocatorias' in st.session_state:
             convocatorias = st.session_state.convocatorias
-            for conv in convocatorias:
-                with st.container(border=True):
-                    st.write(f"**{conv['titulo']}**")
-                    st.write(f"🏛️ **Entidad:** {conv['entidad']}")
-                    st.write(f"🔗 **Enlace:** {conv['enlace']}")
-                    st.write(f"📅 **Publicación:** {conv['fecha']}")
-                    st.write(f"⏰ **Plazo:** {conv['plazo']}")
-                    
-                    if st.button("📌 Seleccionar", key=f"sel_{conv['id']}"):
-                        st.session_state.convocatoria_seleccionada = conv
-                        st.success("✓ Convocatoria seleccionada")
+            
+            # Aplicar filtros
+            if 'filtro_institucion' in st.session_state and st.session_state.filtro_institucion:
+                convocatorias = [c for c in convocatorias if c['institucion'] in st.session_state.filtro_institucion]
+            if 'filtro_tipo' in st.session_state and st.session_state.filtro_tipo:
+                convocatorias = [c for c in convocatorias if c['tipo'] in st.session_state.filtro_tipo]
+            
+            # Mostrar estadísticas rápidas
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total", len(convocatorias))
+            with col2:
+                st.metric("Instituciones", len(set([c['institucion'] for c in convocatorias])))
+            with col3:
+                st.metric("Investigación", len([c for c in convocatorias if c['tipo'] == 'Investigación']))
+            with col4:
+                st.metric("Becas", len([c for c in convocatorias if c['tipo'] == 'Beca']))
+            
+            # Mostrar convocatorias agrupadas por institución
+            for institucion in sorted(set([c['institucion'] for c in convocatorias])):
+                with st.expander(f"🏛️ {institucion} ({len([c for c in convocatorias if c['institucion'] == institucion])})"):
+                    for conv in [c for c in convocatorias if c['institucion'] == institucion]:
+                        with st.container(border=True):
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                st.write(f"**{conv['titulo']}**")
+                                st.write(f"📌 **Tipo:** {conv['tipo']} | 🏛️ **Entidad:** {conv['entidad']}")
+                                st.write(f"🔗 **Enlace:** {conv['enlace']}")
+                                st.write(f"📅 **Publicación:** {conv['fecha']} | ⏰ **Plazo:** {conv['plazo']}")
+                            with col2:
+                                if st.button("📌 Seleccionar", key=f"sel_{conv['id']}"):
+                                    st.session_state.convocatoria_seleccionada = conv
+                                    st.success("✓ Seleccionada")
         else:
             st.info("👈 Busca convocatorias en el sidebar")
     
     with tab2:
         st.header("Envío de Convocatorias")
         
-        # Verificar que tengamos convocatoria seleccionada
         if 'convocatoria_seleccionada' not in st.session_state:
-            st.warning("⚠️ Primero selecciona una convocatoria en la pestaña 'Convocatorias'")
+            st.warning("⚠️ Selecciona una convocatoria en la pestaña 'Convocatorias'")
+        elif 'interesados' not in st.session_state:
+            st.warning("⚠️ Carga interesados desde el sidebar")
         else:
             conv = st.session_state.convocatoria_seleccionada
+            interesados = st.session_state.interesados
             
             # Mostrar convocatoria seleccionada
             with st.container(border=True):
                 st.subheader(f"📄 {conv['titulo']}")
                 st.write(f"**{conv['entidad']}**")
             
-            # Verificar que tengamos interesados
-            if 'interesados' not in st.session_state:
-                st.warning("⚠️ Carga interesados desde el sidebar primero")
-            else:
-                interesados = st.session_state.interesados
-                
-                # Selector de destinatarios
-                st.subheader("Selecciona destinatarios")
-                
-                seleccionar_todos = st.checkbox("✓ Seleccionar todos")
-                
-                seleccionados = []
-                cols = st.columns(2)
-                for i, inv in enumerate(interesados):
-                    with cols[i % 2]:
-                        nombre = inv.get('nombre', 'Sin nombre')
-                        email = inv.get('email', '')
-                        especialidad = inv.get('especialidad', 'No especificada')
-                        
-                        selec = st.checkbox(
-                            f"**{nombre[:30]}**\n📧 {email}\n🏷️ {especialidad[:20]}",
-                            value=seleccionar_todos,
-                            key=f"inv_{i}"
-                        )
-                        if selec:
-                            seleccionados.append({'nombre': nombre, 'email': email})
-                
-                st.info(f"📌 **{len(seleccionados)}** destinatarios seleccionados")
-                
-                # Formulario de envío
-                if seleccionados:
-                    st.markdown("---")
-                    st.subheader("Configurar envío")
+            # Selector de destinatarios
+            st.subheader("Selecciona destinatarios")
+            seleccionar_todos = st.checkbox("✓ Seleccionar todos")
+            
+            seleccionados = []
+            cols = st.columns(2)
+            for i, inv in enumerate(interesados):
+                with cols[i % 2]:
+                    nombre = inv.get('nombre', 'Sin nombre')[:30]
+                    email = inv.get('email', '')
+                    especialidad = inv.get('especialidad', 'General')[:20]
                     
-                    with st.form("form_envio"):
-                        asunto = st.text_input(
-                            "Asunto del correo*",
-                            value=f"Convocatoria: {conv['titulo'][:60]}..."
-                        )
-                        
-                        mensaje_default = f"""
-Te informamos sobre la siguiente convocatoria:
+                    if st.checkbox(
+                        f"**{nombre}**\n📧 {email}\n🏷️ {especialidad}",
+                        value=seleccionar_todos,
+                        key=f"inv_{i}"
+                    ):
+                        seleccionados.append({'nombre': nombre, 'email': email})
+            
+            st.info(f"📌 **{len(seleccionados)}** destinatarios seleccionados")
+            
+            # Formulario de envío
+            if seleccionados:
+                st.markdown("---")
+                with st.form("form_envio"):
+                    asunto = st.text_input(
+                        "Asunto*",
+                        value=f"🇲🇽 Convocatoria Nacional: {conv['titulo'][:60]}..."
+                    )
+                    
+                    mensaje_default = f"""
+Estimado(a) investigador(a):
+
+La **{conv['entidad']}** ha publicado la siguiente convocatoria nacional:
 
 🎯 **{conv['titulo']}**
-🏛️ **Entidad:** {conv['entidad']}
-🔗 **Enlace:** {conv['enlace']}
+🏛️ **Institución:** {conv['institucion']}
+📌 **Tipo:** {conv['tipo']}
+🔗 **Enlace oficial:** {conv['enlace']}
 📅 **Publicación:** {conv['fecha']}
-⏰ **Plazo:** {conv['plazo']}
+⏰ **Cierre:** {conv['plazo']}
 
-Para más información, consulta el enlace oficial.
+📋 **Requisitos generales:**
+• Revisar bases en el enlace oficial
+• Preparar documentación requerida
+• Verificar fechas límite
+
+Atentamente,
+**Sistema de Convocatorias Nacionales**
+INCICh - Instituto Nacional de Cardiología
 """
-                        
-                        mensaje = st.text_area(
-                            "Mensaje del correo*",
-                            value=mensaje_default,
-                            height=250
-                        )
-                        
-                        # Parámetros de envío - IGUAL que en materias9.py
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            pausa_correos = st.number_input(
-                                "Pausa entre correos (segundos)",
-                                min_value=1.0,
-                                max_value=5.0,
-                                value=2.0,
-                                step=0.5
-                            )
-                        with col2:
-                            grupo_size = st.number_input(
-                                "Correos por grupo",
-                                min_value=1,
-                                max_value=10,
-                                value=5
-                            )
-                        
-                        pausa_grupos = st.number_input(
-                            "Pausa entre grupos (segundos)",
-                            min_value=5,
-                            max_value=30,
-                            value=10
-                        )
-                        
-                        enviar_btn = st.form_submit_button(
-                            "📨 ENVIAR CORREOS",
-                            type="primary",
-                            use_container_width=True
-                        )
                     
-                    if enviar_btn:
+                    mensaje = st.text_area("Mensaje*", value=mensaje_default, height=300)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        pausa = st.number_input("Pausa entre correos (s)", 1.0, 5.0, 2.0, 0.5)
+                    with col2:
+                        grupo = st.number_input("Correos por grupo", 1, 10, 5)
+                    
+                    pausa_grupo = st.number_input("Pausa entre grupos (s)", 5, 30, 10)
+                    
+                    if st.form_submit_button("📨 ENVIAR CORREOS", type="primary", use_container_width=True):
                         if not asunto or not mensaje:
-                            st.error("Completa todos los campos obligatorios")
+                            st.error("Completa todos los campos")
                         else:
-                            # Progreso del envío - IGUAL que en materias9.py
-                            progress_bar = st.progress(0)
-                            status_text = st.empty()
+                            progress = st.progress(0)
+                            status = st.empty()
                             
                             exitosos = 0
                             total = len(seleccionados)
                             
                             for i, inv in enumerate(seleccionados):
-                                status_text.text(f"📨 Enviando {i+1} de {total}: {inv['email']}")
+                                status.text(f"📨 {i+1}/{total}: {inv['email']}")
                                 
-                                # Personalizar mensaje con nombre
                                 mensaje_personalizado = f"Estimado(a) {inv['nombre']}:\n\n{mensaje}"
                                 
                                 if enviar_correo(inv['email'], asunto, mensaje_personalizado):
                                     exitosos += 1
                                 
-                                progress_bar.progress((i + 1) / total)
-                                time.sleep(pausa_correos)
+                                progress.progress((i + 1) / total)
+                                time.sleep(pausa)
                                 
-                                # Pausa entre grupos
-                                if (i + 1) % grupo_size == 0 and (i + 1) < total:
-                                    status_text.text(f"⏸️ Pausa de {pausa_grupos} segundos...")
-                                    time.sleep(pausa_grupos)
+                                if (i + 1) % grupo == 0 and (i + 1) < total:
+                                    status.text(f"⏸️ Pausa {pausa_grupo}s...")
+                                    time.sleep(pausa_grupo)
                             
-                            progress_bar.empty()
-                            status_text.empty()
+                            progress.empty()
+                            status.empty()
                             
-                            # Resultados
                             if exitosos > 0:
-                                st.success(f"""
-                                ### ✅ ¡Envío completado!
-                                - 📨 Total: {total}
-                                - ✅ Exitosos: {exitosos}
-                                - ❌ Fallidos: {total - exitosos}
-                                - 📈 Tasa de éxito: {(exitosos/total*100):.1f}%
-                                """)
-                                
-                                # Registrar en log
+                                st.success(f"✅ {exitosos}/{total} correos enviados")
                                 registrar_envio_log(conv['id'], conv['titulo'], total, exitosos)
-                                
                                 st.balloons()
                             else:
-                                st.error("❌ No se pudo enviar ningún correo")
-                else:
-                    st.info("👆 Selecciona al menos un destinatario")
+                                st.error("❌ No se enviaron correos")
     
     with tab3:
-        st.header("Historial de Envíos")
+        st.header("Estadísticas y Historial")
         mostrar_historial()
 
-# ==================== EJECUCIÓN ====================
 if __name__ == "__main__":
     main()

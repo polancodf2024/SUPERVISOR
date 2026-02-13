@@ -537,7 +537,7 @@ def mostrar_historial():
     except Exception as e:
         st.error(f"Error al cargar historial: {e}")
 
-# ==================== INTERFAZ PRINCIPAL ====================
+# ==================== INTERFAZ PRINCIPAL SIMPLIFICADA ====================
 def main():
     # Verificar configuración
     try:
@@ -547,7 +547,7 @@ def main():
         st.stop()
     
     # Título
-    st.title("🇲🇽 Buscador de Convocatorias Nacionales")
+    st.title("🇲🇽 Buscador y Envío de Convocatorias Nacionales")
     st.markdown("---")
     
     # Estado del sistema
@@ -562,11 +562,33 @@ def main():
     with col3:
         st.info(f"📅 {datetime.now().strftime('%d/%m/%Y')}")
     
-    # Sidebar
+    # Sidebar simplificado
     with st.sidebar:
-        st.header("⚙️ Control")
+        st.header("⚙️ Control Rápido")
         
-        # Prueba SMTP
+        # Cargar interesados
+        if st.button("👥 Cargar Lista de Interesados", use_container_width=True):
+            with st.spinner("Cargando..."):
+                interesados = obtener_interesados_activos()
+                if interesados:
+                    st.success(f"✅ {len(interesados)} interesados activos")
+                    st.session_state.interesados = interesados
+                else:
+                    st.error("❌ No se cargaron interesados")
+        
+        # Buscar convocatorias
+        if st.button("🔍 Buscar Todas las Convocatorias", use_container_width=True, type="primary"):
+            buscador = BuscadorConvocatoriasNacionales()
+            with st.spinner("Buscando en todas las instituciones..."):
+                convocatorias = buscador.buscar_todas()
+                if convocatorias:
+                    buscador.guardar_convocatorias(convocatorias)
+                    st.session_state.convocatorias = convocatorias
+                    st.success(f"✅ {len(convocatorias)} convocatorias encontradas")
+                else:
+                    st.error("❌ No se encontraron convocatorias")
+        
+        # Prueba SMTP rápida
         with st.expander("📧 Probar conexión SMTP"):
             if st.button("🔌 Probar", use_container_width=True):
                 try:
@@ -578,143 +600,138 @@ def main():
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)[:50]}")
         
-        # Cargar interesados
-        st.markdown("---")
-        st.subheader("👥 Interesados")
-        if st.button("🔄 Cargar lista remota", use_container_width=True):
-            with st.spinner("Cargando..."):
-                interesados = obtener_interesados_activos()
-                if interesados:
-                    st.success(f"✅ {len(interesados)} interesados activos")
-                    st.session_state.interesados = interesados
-                else:
-                    st.error("❌ No se cargaron interesados")
-        
-        # Buscar convocatorias
-        st.markdown("---")
-        st.subheader("🔍 Convocatorias")
-        if st.button("🎯 Buscar TODAS", use_container_width=True):
-            buscador = BuscadorConvocatoriasNacionales()
-            with st.spinner("Buscando en todas las instituciones..."):
-                convocatorias = buscador.buscar_todas()
-                if convocatorias:
-                    buscador.guardar_convocatorias(convocatorias)
-                    st.session_state.convocatorias = convocatorias
-                    st.success(f"✅ {len(convocatorias)} convocatorias encontradas")
-                else:
-                    st.error("❌ No se encontraron convocatorias")
-        
-        # Filtros
-        st.markdown("---")
-        st.subheader("🎯 Filtros")
-        
-        if 'convocatorias' in st.session_state:
-            instituciones = list(set([c['institucion'] for c in st.session_state.convocatorias]))
-            tipos = list(set([c['tipo'] for c in st.session_state.convocatorias]))
-            
-            filtro_institucion = st.multiselect("Institución", instituciones, default=instituciones)
-            filtro_tipo = st.multiselect("Tipo", tipos, default=tipos)
-            
-            st.session_state.filtro_institucion = filtro_institucion
-            st.session_state.filtro_tipo = filtro_tipo
-        
-        # Información
-        st.markdown("---")
-        st.caption("**Fuentes nacionales:**")
-        st.caption("• SECIHTI (antes CONACYT)")
-        st.caption("• UNAM - DGAPA")
-        st.caption("• IPN - SIP/COFAA")
-        st.caption("• Sector Salud (IMSS, INC)")
-        st.caption("• SENER - Energía")
-        st.caption("• INIFAP - Agricultura")
+        # Información de fuentes
+        with st.expander("ℹ️ Fuentes Nacionales"):
+            st.caption("• SECIHTI (antes CONACYT)")
+            st.caption("• UNAM - DGAPA")
+            st.caption("• IPN - SIP/COFAA")
+            st.caption("• Sector Salud (IMSS, INC)")
+            st.caption("• SENER - Energía")
+            st.caption("• INIFAP - Agricultura")
     
-    # Tabs principales
-    tab1, tab2, tab3 = st.tabs(["📋 Convocatorias", "📧 Enviar", "📊 Estadísticas"])
+    # Pestañas simplificadas
+    tab1, tab2 = st.tabs(["📋 Buscar y Seleccionar", "📊 Estadísticas"])
     
     with tab1:
-        st.header("Convocatorias Nacionales Vigentes")
+        st.header("Buscar Convocatorias y Seleccionar Interesados")
         
-        if 'convocatorias' in st.session_state:
-            convocatorias = st.session_state.convocatorias
-            
-            # Aplicar filtros
-            if 'filtro_institucion' in st.session_state and st.session_state.filtro_institucion:
-                convocatorias = [c for c in convocatorias if c['institucion'] in st.session_state.filtro_institucion]
-            if 'filtro_tipo' in st.session_state and st.session_state.filtro_tipo:
-                convocatorias = [c for c in convocatorias if c['tipo'] in st.session_state.filtro_tipo]
-            
-            # Mostrar estadísticas rápidas
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total", len(convocatorias))
-            with col2:
-                st.metric("Instituciones", len(set([c['institucion'] for c in convocatorias])))
-            with col3:
-                st.metric("Investigación", len([c for c in convocatorias if c['tipo'] == 'Investigación']))
-            with col4:
-                st.metric("Becas", len([c for c in convocatorias if c['tipo'] == 'Beca']))
-            
-            # Mostrar convocatorias agrupadas por institución
-            for institucion in sorted(set([c['institucion'] for c in convocatorias])):
-                with st.expander(f"🏛️ {institucion} ({len([c for c in convocatorias if c['institucion'] == institucion])})"):
-                    for conv in [c for c in convocatorias if c['institucion'] == institucion]:
-                        with st.container(border=True):
-                            col1, col2 = st.columns([3, 1])
-                            with col1:
-                                st.write(f"**{conv['titulo']}**")
-                                st.write(f"📌 **Tipo:** {conv['tipo']} | 🏛️ **Entidad:** {conv['entidad']}")
-                                st.write(f"🔗 **Enlace:** {conv['enlace']}")
-                                st.write(f"📅 **Publicación:** {conv['fecha']} | ⏰ **Plazo:** {conv['plazo']}")
-                            with col2:
-                                if st.button("📌 Seleccionar", key=f"sel_{conv['id']}"):
-                                    st.session_state.convocatoria_seleccionada = conv
-                                    st.success("✓ Seleccionada")
-        else:
-            st.info("👈 Busca convocatorias en el sidebar")
-    
-    with tab2:
-        st.header("Envío de Convocatorias")
-        
-        if 'convocatoria_seleccionada' not in st.session_state:
-            st.warning("⚠️ Selecciona una convocatoria en la pestaña 'Convocatorias'")
+        # Verificar datos necesarios
+        if 'convocatorias' not in st.session_state:
+            st.warning("⚠️ Primero busca las convocatorias usando el botón en el sidebar")
+            if st.button("🔍 Buscar Ahora", use_container_width=True):
+                buscador = BuscadorConvocatoriasNacionales()
+                with st.spinner("Buscando convocatorias..."):
+                    convocatorias = buscador.buscar_todas()
+                    if convocatorias:
+                        buscador.guardar_convocatorias(convocatorias)
+                        st.session_state.convocatorias = convocatorias
+                        st.rerun()
         elif 'interesados' not in st.session_state:
-            st.warning("⚠️ Carga interesados desde el sidebar")
+            st.warning("⚠️ Carga la lista de interesados desde el sidebar")
         else:
-            conv = st.session_state.convocatoria_seleccionada
-            interesados = st.session_state.interesados
+            # Layout de dos columnas
+            col_conv, col_inter = st.columns([3, 2])
             
-            # Mostrar convocatoria seleccionada
-            with st.container(border=True):
-                st.subheader(f"📄 {conv['titulo']}")
-                st.write(f"**{conv['entidad']}**")
-            
-            # Selector de destinatarios
-            st.subheader("Selecciona destinatarios")
-            seleccionar_todos = st.checkbox("✓ Seleccionar todos")
-            
-            seleccionados = []
-            cols = st.columns(2)
-            for i, inv in enumerate(interesados):
-                with cols[i % 2]:
-                    nombre = inv.get('nombre', 'Sin nombre')[:30]
-                    email = inv.get('email', '')
-                    especialidad = inv.get('especialidad', 'General')[:20]
+            with col_conv:
+                st.subheader("🏛️ Convocatorias Disponibles")
+                
+                # Filtros rápidos
+                instituciones = list(set([c['institucion'] for c in st.session_state.convocatorias]))
+                tipos = list(set([c['tipo'] for c in st.session_state.convocatorias]))
+                
+                filtro_institucion = st.multiselect("Filtrar por Institución", instituciones, default=instituciones, key="filtro_inst")
+                filtro_tipo = st.multiselect("Filtrar por Tipo", tipos, default=tipos, key="filtro_tipo")
+                
+                # Aplicar filtros
+                convocatorias_filtradas = st.session_state.convocatorias
+                if filtro_institucion:
+                    convocatorias_filtradas = [c for c in convocatorias_filtradas if c['institucion'] in filtro_institucion]
+                if filtro_tipo:
+                    convocatorias_filtradas = [c for c in convocatorias_filtradas if c['tipo'] in filtro_tipo]
+                
+                # Mostrar convocatorias con radio button
+                st.write(f"**{len(convocatorias_filtradas)} convocatorias encontradas**")
+                
+                opciones_conv = {}
+                for i, conv in enumerate(convocatorias_filtradas):
+                    opciones_conv[f"{conv['institucion']} - {conv['titulo'][:50]}..."] = conv
+                
+                if opciones_conv:
+                    seleccion = st.radio(
+                        "Selecciona una convocatoria:",
+                        options=list(opciones_conv.keys()),
+                        key="conv_seleccionada",
+                        format_func=lambda x: f"**{x}**"
+                    )
                     
+                    if seleccion:
+                        conv_seleccionada = opciones_conv[seleccion]
+                        st.session_state.convocatoria_seleccionada = conv_seleccionada
+                        
+                        # Mostrar detalles
+                        with st.expander("📄 Ver detalles completos", expanded=True):
+                            st.write(f"**Título:** {conv_seleccionada['titulo']}")
+                            st.write(f"**Entidad:** {conv_seleccionada['entidad']}")
+                            st.write(f"**Tipo:** {conv_seleccionada['tipo']}")
+                            st.write(f"**Enlace:** {conv_seleccionada['enlace']}")
+                            st.write(f"**Publicación:** {conv_seleccionada['fecha']}")
+                            st.write(f"**Plazo:** {conv_seleccionada['plazo']}")
+            
+            with col_inter:
+                st.subheader("👥 Interesados Activos")
+                
+                # Mostrar resumen
+                st.metric("Total interesados", len(st.session_state.interesados))
+                
+                # Búsqueda en interesados
+                busqueda = st.text_input("🔍 Buscar por nombre o email", placeholder="Escribe para filtrar...")
+                
+                # Filtrar interesados
+                interesados_filtrados = st.session_state.interesados
+                if busqueda:
+                    busqueda_lower = busqueda.lower()
+                    interesados_filtrados = [
+                        i for i in interesados_filtrados 
+                        if busqueda_lower in i['nombre'].lower() or busqueda_lower in i['email'].lower()
+                    ]
+                
+                # Selector de destinatarios
+                st.write(f"**{len(interesados_filtrados)} interesados mostrados**")
+                
+                seleccionar_todos = st.checkbox("✓ Seleccionar todos", key="sel_todos")
+                
+                seleccionados = []
+                for i, inv in enumerate(interesados_filtrados):
                     if st.checkbox(
-                        f"**{nombre}**\n📧 {email}\n🏷️ {especialidad}",
+                        f"**{inv['nombre']}**\n📧 {inv['email']}\n🏷️ {inv['especialidad']}",
                         value=seleccionar_todos,
                         key=f"inv_{i}"
                     ):
-                        seleccionados.append({'nombre': nombre, 'email': email})
+                        seleccionados.append({'nombre': inv['nombre'], 'email': inv['email']})
+                
+                st.info(f"📌 **{len(seleccionados)}** destinatarios seleccionados")
+                st.session_state.destinatarios_seleccionados = seleccionados
             
-            st.info(f"📌 **{len(seleccionados)}** destinatarios seleccionados")
-            
-            # Formulario de envío
-            if seleccionados:
+            # Sección de envío (debajo de las dos columnas)
+            if 'convocatoria_seleccionada' in st.session_state and st.session_state.destinatarios_seleccionados:
                 st.markdown("---")
-                with st.form("form_envio"):
+                st.subheader("📧 Enviar Convocatoria")
+                
+                conv = st.session_state.convocatoria_seleccionada
+                
+                # Mostrar resumen
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.info(f"📄 **Convocatoria:** {conv['titulo'][:50]}...")
+                with col2:
+                    st.info(f"👥 **Destinatarios:** {len(st.session_state.destinatarios_seleccionados)}")
+                with col3:
+                    st.info(f"🏛️ **Institución:** {conv['institucion']}")
+                
+                # Formulario de envío
+                with st.form("form_envio_simplificado"):
                     asunto = st.text_input(
-                        "Asunto*",
+                        "Asunto del correo*",
                         value=f"🇲🇽 Convocatoria Nacional: {conv['titulo'][:60]}..."
                     )
                     
@@ -740,7 +757,7 @@ Atentamente,
 INCICh - Instituto Nacional de Cardiología
 """
                     
-                    mensaje = st.text_area("Mensaje*", value=mensaje_default, height=300)
+                    mensaje = st.text_area("Mensaje*", value=mensaje_default, height=250)
                     
                     col1, col2 = st.columns(2)
                     with col1:
@@ -748,9 +765,9 @@ INCICh - Instituto Nacional de Cardiología
                     with col2:
                         grupo = st.number_input("Correos por grupo", 1, 10, 5)
                     
-                    pausa_grupo = st.number_input("Pausa entre grupos (s)", 5, 30, 10)
+                    enviar_btn = st.form_submit_button("📨 ENVIAR CORREOS", type="primary", use_container_width=True)
                     
-                    if st.form_submit_button("📨 ENVIAR CORREOS", type="primary", use_container_width=True):
+                    if enviar_btn:
                         if not asunto or not mensaje:
                             st.error("Completa todos los campos")
                         else:
@@ -758,9 +775,9 @@ INCICh - Instituto Nacional de Cardiología
                             status = st.empty()
                             
                             exitosos = 0
-                            total = len(seleccionados)
+                            total = len(st.session_state.destinatarios_seleccionados)
                             
-                            for i, inv in enumerate(seleccionados):
+                            for i, inv in enumerate(st.session_state.destinatarios_seleccionados):
                                 status.text(f"📨 {i+1}/{total}: {inv['email']}")
                                 
                                 mensaje_personalizado = f"Estimado(a) {inv['nombre']}:\n\n{mensaje}"
@@ -785,7 +802,7 @@ INCICh - Instituto Nacional de Cardiología
                             else:
                                 st.error("❌ No se enviaron correos")
     
-    with tab3:
+    with tab2:
         st.header("Estadísticas y Historial")
         mostrar_historial()
 
